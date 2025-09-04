@@ -1,4 +1,7 @@
+import { db } from '../db';
+import { uploadBatchesTable, electricityBillsTable } from '../db/schema';
 import { type GetUploadStatusInput, type UploadStatusResponse } from '../schema';
+import { eq } from 'drizzle-orm';
 
 /**
  * Handler for getting the status of an upload batch and its associated bills
@@ -9,34 +12,42 @@ import { type GetUploadStatusInput, type UploadStatusResponse } from '../schema'
  * 4. Include processing progress and any error details
  */
 export async function getUploadStatus(input: GetUploadStatusInput): Promise<UploadStatusResponse> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to provide status updates on upload processing.
-    // It should return both batch-level and individual bill-level status information.
-    
-    return Promise.resolve({
-        upload: {
-            id: input.upload_id,
-            filename: 'sample_bills.zip', // Placeholder
-            total_files: 10,
-            processed_files: 5,
-            failed_files: 1,
-            status: 'processing' as const,
-            created_at: new Date(),
-            completed_at: null
-        },
-        bills: [
-            {
-                id: 1,
-                filename: 'bill_001.pdf',
-                upload_id: input.upload_id,
-                total_amount: 125.50,
-                energy_consumption: 150.75,
-                bill_date: new Date(),
-                corrected_amount: 138.05,
-                extraction_status: 'success' as const,
-                error_message: null,
-                created_at: new Date()
-            }
-        ]
-    });
+  try {
+    // Fetch the upload batch record by ID
+    const uploadResults = await db.select()
+      .from(uploadBatchesTable)
+      .where(eq(uploadBatchesTable.id, input.upload_id))
+      .execute();
+
+    if (uploadResults.length === 0) {
+      throw new Error(`Upload batch with ID ${input.upload_id} not found`);
+    }
+
+    const upload = uploadResults[0];
+
+    // Fetch all associated electricity bills
+    const billResults = await db.select()
+      .from(electricityBillsTable)
+      .where(eq(electricityBillsTable.upload_id, input.upload_id))
+      .execute();
+
+    // Convert numeric fields back to numbers for the bills
+    // Handle nullable fields by providing defaults for pending/failed extractions
+    const bills = billResults.map(bill => ({
+      ...bill,
+      total_amount: bill.total_amount ? parseFloat(bill.total_amount) : 0,
+      energy_consumption: bill.energy_consumption ? parseFloat(bill.energy_consumption) : 0,
+      bill_date: bill.bill_date || new Date(),
+      corrected_amount: bill.corrected_amount ? parseFloat(bill.corrected_amount) : null
+    }));
+
+    // Return the comprehensive status information
+    return {
+      upload,
+      bills
+    };
+  } catch (error) {
+    console.error('Getting upload status failed:', error);
+    throw error;
+  }
 }
